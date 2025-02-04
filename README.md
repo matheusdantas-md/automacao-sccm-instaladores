@@ -1,3 +1,49 @@
+# Automatic Installer Management with PowerShell
+
+## Overview
+
+This project automates the download and organization of software installers in SCCM, using Winget to fetch the latest versions. It checks if a new version is available and, if so, downloads and organizes the files automatically. Later, a second script will be developed to deploy these applications in SCCM without manual intervention.
+
+## Features
+
+- **Automatic Verification**: Compares the already downloaded software version with the latest version available via Winget.
+- **Automated Download**: Retrieves the latest installers and organizes them into structured folders.
+- **Log Recording**: Maintains a history of updates for auditing and debugging purposes.
+- **Environment Adaptability**: Can be configured for different scenarios without requiring authentication.
+
+## Requirements
+
+- Windows 10/11 with Winget support
+- PowerShell 5.1 or later
+- Permission to execute scripts (Set-ExecutionPolicy)
+
+## How to Use
+
+1. **Download the script**
+   ```powershell
+   git clone https://github.com/matheusdantas-md/automacao-sccm-instaladores.git
+   cd automacao-sccm-instaladores
+   ```
+2. **Configure the software list**
+   Edit the `software_list.json` file with the desired packages (based on Winget IDs).
+3. **Run the script**
+   ```powershell
+   .\ScriptUpdateSoftwares.ps1
+   ```
+4. **Check the logs**
+   Logs will be stored in `C:\temp\Scripts\update_log.log`.
+
+## Next Steps
+
+- Development of a complementary script to automatically create packages and deploy them in SCCM.
+- Improvements in error handling and optimization of version detection.
+
+## Contribution
+
+Pull requests are welcome! If you have ideas for improvements, feel free to open an issue.
+
+
+
 # Gerenciamento Automático de Instaladores com PowerShell
 
 ## Visão Geral

@@ -10,6 +10,9 @@ This project automates the download and organization of software installers in S
 - **Automated Download**: Retrieves the latest installers and organizes them into structured folders.
 - **Log Recording**: Maintains a history of updates for auditing and debugging purposes.
 - **Environment Adaptability**: Can be configured for different scenarios without requiring authentication.
+- **New Download Function**: The script now includes a dedicated function to download installers via Winget, making the code more modular and easier to maintain.
+- **Update Recording in JSON**: A JSON file is generated on the server to log which software has been updated, eliminating the need for the next deploy script to check all the folders and speeding up the process.
+- **Smart File Copying Check**: Before copying an installer to the server, the script compares the existing version with the new one. If they are the same, the copy is skipped, reducing unnecessary transfers.
 
 ## Requirements
 
@@ -56,6 +59,9 @@ Este projeto automatiza o download e a organização de instaladores de software
 - **Download Automatizado**: Obtém os instaladores mais recentes e os organiza em pastas estruturadas.
 - **Registro de Logs**: Mantém um histórico das atualizações para auditoria e depuração.
 - **Adaptação ao Ambiente**: Pode ser configurado para diferentes cenários sem necessidade de autenticação.
+- **Nova Função de Download**: O script agora possui uma função dedicada para baixar os instaladores via Winget, tornando o código mais modular e fácil de manter.
+- **Registro de Atualizações em JSON**: Um arquivo JSON é gerado no servidor para registrar quais softwares foram atualizados. Isso elimina a necessidade do próximo script de deploy verificar todas as pastas, acelerando o processo.
+- **Verificação Inteligente na Cópia de Arquivos**: Antes de copiar um instalador para o servidor, o script compara a versão existente com a nova. Se forem iguais, a cópia é evitada, reduzindo transferências desnecessárias.
 
 ## Requisitos
 

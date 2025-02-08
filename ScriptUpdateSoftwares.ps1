@@ -1,22 +1,72 @@
-﻿# Configurações
+# Settings
 $softwareList = Get-Content -Path "C:\temp\Scripts\software_list.json" | ConvertFrom-Json
 $downloadDir = "C:\temp\Instaladores"
 $logFile = "C:\temp\Scripts\update_log.log"
-$DestDir = "D:\Applications"  # Caminho para o servidor onde os instaladores serão organizados
+$DestDir = "D:\Applications" 
+$updateHistoryFile = "D:\Applications\update_history.json"
 $supportedExtensions = @(".exe", ".msi")
 
-# Criar diretório de download, se não existir
+# Create download directory if it doesn't exist
 if (!(Test-Path -Path $downloadDir)) { New-Item -ItemType Directory -Path $downloadDir -Force }
+# Delete old log file
+if (Test-Path $updateHistoryFile) { Remove-Item -Path $updateHistoryFile -Force -ErrorAction SilentlyContinue }
 
-# Função para registrar logs
+# Function to record updates in JSON
+function Write-UpdateHistory {
+    param (
+        [string]$software,
+        [string]$version,
+        [string]$path
+    )
+
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    
+    # Create new entry structure
+    $newEntry = @{
+        software  = $software
+        version   = $version
+        path      = $path
+        timestamp = $timestamp
+    }
+    
+    # Check if JSON file exists
+    if (Test-Path $updateHistoryFile) {
+        # Read existing content
+        $updateHistory = Get-Content -Path $updateHistoryFile -Raw | ConvertFrom-Json -ErrorAction SilentlyContinue
+        # Initialize if empty
+        if (-not $updateHistory) {
+            $updateHistory = @{ updates = @() }
+        }
+
+        # Check for duplicate entries
+        $entryExists = $updateHistory.updates | Where-Object { 
+            $_.software -eq $newEntry.software -and $_.version -eq $newEntry.version
+        }
+
+        if (-not $entryExists) {
+            # Add new entry            
+            $updateHistory.updates += $newEntry
+        }
+    }
+    else {
+        # Initialize structure if file doesn't exist
+        $updateHistory = @{ updates = @($newEntry) }
+    }
+
+    # Save updated JSON
+    $updateHistory | ConvertTo-Json -Depth 10 | Set-Content -Path $updateHistoryFile -Encoding UTF8
+}
+
+# Function for logging
 function Write-Log {
     param (
         [string]$message,
-        [String]$color = "white")
+        [String]$color = "white"
+    )
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $logMessage = "[$timestamp] $message"
     
-    # Usar bloqueio de arquivo para evitar acesso concorrente
+    # Use file locking to prevent concurrent access
     $fileStream = [System.IO.File]::Open($logFile, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
     $streamWriter = New-Object System.IO.StreamWriter($fileStream)
     $streamWriter.WriteLine($logMessage)
@@ -26,7 +76,7 @@ function Write-Log {
     Write-Host $logMessage -ForegroundColor $color
 }
 
-# Função para obter a versão do instalador
+# Function to get installer version from filename
 function Get-InstallerVersion {
     param ([string]$installerPath)
     try {
@@ -35,22 +85,22 @@ function Get-InstallerVersion {
             return $matches[1]
         }
         else {
-            Write-Log "Versão do instalador não encontrada no nome do arquivo: $installerPath"  
+            Write-Log "Installer version not found in filename: $installerPath"  
             return $null
         }
     }
     catch {
-        Write-Log "Erro ao obter versão do instalador: $installerPath - $_"
+        Write-Log "Error retrieving installer version: $installerPath - $_"
         return $null
     }
 }
 
-# Função para obter a versão mais recente do software via Winget
+# Function to get latest version via Winget
 function Get-LatestVersion {
     param ([string]$softwareId)
     try {
         if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-            Write-Log "winget não está instalado ou disponível no sistema."
+            Write-Log "winget is not installed or available on the system."
             return $null
         }
 
@@ -59,12 +109,12 @@ function Get-LatestVersion {
         return $latestVersion
     }
     catch {
-        Write-Log "Erro ao obter versão mais recente de $softwareId - $_"
+        Write-Log "Error retrieving latest version of $softwareId - $_"
         return $null
     }
 }
 
-# Função para gerar um nome amigável para a pasta
+# Function to generate friendly folder name
 function Get-FriendlyFolderName {
     param ([string]$installerName)
     $friendlyName = $installerName.Split('_')[0]
@@ -72,9 +122,30 @@ function Get-FriendlyFolderName {
     return $friendlyName
 }
 
-# Verificar e baixar atualizações
+# Function to download and update installer
+function DownloadAndUpdateInstaller {
+    param (
+        [string]$software,
+        [string]$latestVersion
+    )
+
+    try {
+        winget download --id $software --download-directory $downloadDir --accept-source-agreements --accept-package-agreements
+        if ($?) {
+            Write-Log "Download completed for $software (version $latestVersion)." -color Green
+        }
+        else {
+            Write-Log "winget command failed for $software." -color Red
+        }
+    }
+    catch {
+        Write-Log "Error downloading $software $_" -color Red
+    }
+}
+
+# Check and download updates
 foreach ($software in $softwareList.softwares) {
-    Write-Log "Verificando atualizações para $software..."
+    Write-Log "Checking updates for $software..."
 
     $existingInstaller = $null
     $wingetOutput = winget show --id $software
@@ -94,116 +165,115 @@ foreach ($software in $softwareList.softwares) {
         
     $latestVersion = Get-LatestVersion -softwareId $software
     if (-not $latestVersion) {
-        Write-Log "Pulado: não foi possível obter a versão mais recente de $software."
+        Write-Log "Skipped: Failed to retrieve latest version of $software."
         continue
     }
 
     if ($existingInstaller) {
-        Write-Log "Instalador existente encontrado: $($existingInstaller.FullName)"
+        Write-Log "Existing installer found: $($existingInstaller.FullName)"
 
         $currentVersion = Get-InstallerVersion -installerPath $existingInstaller.FullName
         if (-not $currentVersion) {
-            Write-Log "Pulado: não foi possível obter a versão do instalador existente de $software." -color Red
+            Write-Log "Skipped: Could not get version of existing installer for $software." -color Red
             continue
         }
 
-        Write-Log "Versão atual do instalador: $currentVersion" -color DarkYellow
-        Write-Log "Versão mais recente disponível: $latestVersion" -color Cyan
+        Write-Log "Current installer version: $currentVersion" -color DarkYellow
+        Write-Log "Latest available version: $latestVersion" -color Cyan
 
         if ($currentVersion -ne $latestVersion) {
-            Write-Log "Nova versão disponível. Atualizando $software..." -color DarkGreen
+            Write-Log "New version available. Updating $software..." -color DarkGreen
 
             try {
                 Remove-Item -Path $existingInstaller.FullName -Force
-                Write-Log "Instalador antigo removido: $($existingInstaller.FullName)" -color Green
+                $yamlFile = [System.IO.Path]::ChangeExtension($existingInstaller.FullName, ".yaml")
+                Remove-Item -Path $yamlFile -Force
+                Write-Log "Old installer removed: $($existingInstaller.FullName)" -color Green
             }
             catch {
-                Write-Log "Erro ao remover instalador antigo $($existingInstaller.FullName): $_" -color Red
+                Write-Log "Error removing old installer $($existingInstaller.FullName): $_" -color Red
                 continue
             }
-
-            try {
-                winget download --id $software --download-directory $downloadDir --accept-source-agreements --accept-package-agreements
-                if ($?) {
-                    Write-Log "Download concluído para $software (versão $latestVersion)." -color Green
-                }
-                else {
-                    Write-Log "Erro no comando winget para $software." -color Red
-                }
-            }
-            catch {
-                Write-Log "Erro ao baixar nova versão de $software $_" -color Red
-            }
+            
+            DownloadAndUpdateInstaller -software $software -latestVersion $latestVersion
         }
         else {
-            Write-Log "O instalador já está na versão mais recente. Nenhuma ação necessária." -color Green
+            Write-Log "Installer is already up-to-date. No action required." -color Green
         }
     }
     else {
-        Write-Log "Nenhum instalador encontrado para $software. Baixando a versão mais recente..." -color Yellow
-        try {
-            winget download --id $software --download-directory $downloadDir --accept-source-agreements --accept-package-agreements
-            if ($?) {
-                Write-Log "Download concluído para $software." -color Green
-            }
-            else {
-                Write-Log "Erro no comando winget para $software." -color Red
-            }
-        }
-        catch {
-            Write-Log "Erro ao baixar $software $_" -color Red
-        }
+        Write-Log "No installer found for $software. Downloading latest version..." -color Yellow
+        DownloadAndUpdateInstaller -software $software -latestVersion $latestVersion
     }
 }
 
-# Copiar os instaladores para as pastas organizadas no servidor
+# Copy installers to organized server folders
 $installers = Get-ChildItem -Path $downloadDir -File
 $processedFolders = @()
 
 foreach ($installer in $installers) {
     $AppFolder = Join-Path -Path $DestDir -ChildPath (Get-FriendlyFolderName -installerName $installer.BaseName)
-    
+    $software = Get-FriendlyFolderName -installerName $installer.BaseName
+
     if ($processedFolders -contains $AppFolder) {
         continue
     }
-    
-    if (Test-Path -Path $AppFolder) {
-        Write-Log "A pasta $AppFolder já existe. Verificando arquivos antigos..."
-        
-        $oldFiles = Get-ChildItem -Path $AppFolder -File
-        
-        if ($oldFiles.Count -gt 0) {
-            Write-Log "Removendo $($oldFiles.Count) arquivo(s) antigo(s) de $AppFolder."
-            $oldFiles | Remove-Item -Force -Recurse
-        } else {
-            Write-Log "Nenhum arquivo antigo encontrado em $AppFolder."
-        }
-    } else {
-        Write-Log "Criando pasta para $($installer.BaseName) no servidor."
-        New-Item -ItemType Directory -Path $AppFolder -Force
+
+    # Check for existing server installer
+    $existingInstaller = $null
+    foreach ($extension in $supportedExtensions) {
+        $existingInstaller = Get-ChildItem -Path $AppFolder -Filter "*$($installer.BaseName)*$extension" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($existingInstaller) { break }
     }
 
-    try {
-        $installerBaseName = [System.IO.Path]::GetFileNameWithoutExtension($installer.Name)
-        $matchingFiles = Get-ChildItem -Path $downloadDir -Filter "$installerBaseName.*" -File
+    # Get server version (if exists)
+    $serverVersion = if ($existingInstaller) { Get-InstallerVersion -installerPath $existingInstaller.FullName } else { "0.0.0.0" }
 
-        foreach ($file in $matchingFiles) {
-            $DestPath = Join-Path -Path $AppFolder -ChildPath $file.Name
+    # Get downloaded version
+    $downloadedVersion = Get-InstallerVersion -installerPath $installer.FullName
 
-            if (!(Test-Path -Path $DestPath)) {
-                Write-Log "Copiando $($file.Name) para $DestPath." -color Green
-                Copy-Item -Path $file.FullName -Destination $DestPath -Force
-            } else {
-                Write-Log "Arquivo $($file.Name) já está na pasta. Pulando cópia." -color Yellow
-            }
+    Write-Log "Software: $software → Server version: $serverVersion | Downloaded version: $downloadedVersion"
+
+    # Compare versions
+    if ([version]$downloadedVersion -gt [version]$serverVersion) {
+        Write-Log "New version detected. Updating server..."
+
+        # Create folder if missing
+        if (!(Test-Path -Path $AppFolder)) {
+            New-Item -ItemType Directory -Path $AppFolder -Force
         }
-    } catch {
-        Write-Log "Erro ao copiar arquivos para $AppFolder $_" -color Red
+
+        # Remove old files
+        $oldFiles = Get-ChildItem -Path $AppFolder -File
+        if ($oldFiles.Count -gt 0) {
+            Write-Log "Removing $($oldFiles.Count) old file(s) from $AppFolder."
+            $oldFiles | Remove-Item -Force -Recurse
+        }
+
+        # Copy new files
+        try {
+            $installerBaseName = [System.IO.Path]::GetFileNameWithoutExtension($installer.Name)
+            $matchingFiles = Get-ChildItem -Path $downloadDir -Filter "$installerBaseName.*" -File
+            
+            foreach ($file in $matchingFiles) {
+                $DestPath = Join-Path -Path $AppFolder -ChildPath $file.Name
+                Write-Log "Copying $($file.Name) to $DestPath." -color Green
+                Copy-Item -Path $file.FullName -Destination $DestPath -Force
+            }
+
+            # Record update
+            Write-UpdateHistory -software $software -version $downloadedVersion -path $AppFolder
+        }
+        catch {
+            Write-Log "Error copying files to $AppFolder $_" -color Red
+        }
+    }
+    else {
+        Write-Log "Server version is already up-to-date. No action required."
     }
 
     $processedFolders += $AppFolder
-
     Start-Sleep -Seconds 1
 }
 
-Write-Log "Processo de atualização concluído." -color Green
+Write-Log "Update process completed." -color Green
